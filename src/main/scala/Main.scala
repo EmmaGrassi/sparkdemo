@@ -1,12 +1,4 @@
-import java.time.LocalDate
-
-import domain.Card
-import domain.Debit
-import domain.Disposition
-import domain.District
-import domain.Loan
-import domain.Transaction
-import domain.{Account, Client}
+import domain._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import util._
@@ -45,9 +37,6 @@ object Main extends App {
   val disposition = parseFile(dispFile, Disposition.fromCSV)
 
 
-  disposition take 10 foreach println
-
-
   /* transform into pairs */
   val clientPair = clients.map(c => c.id -> c)
   val transactionPair = transactions.map(t => t.accountId -> t)
@@ -55,7 +44,27 @@ object Main extends App {
   val accountPair = accounts.map(a => a.id -> a)
 
 
+  /*
+    1. Find the top 10 clients. (With more money in their accounts)
+      Explain aggregateByKey, why is it better than groupBy
+
+       def aggregateByKey
+        (zeroValue: U)
+        (seqOp: (U, V) => U,
+          combOp: (U, U) => U): RDD[(K, U)]
+
+
+      Explain join
+
+      transactions -> accountId
+      disposition -> clientId, accountId...
+
+  */
+
+
+
   /* be careful of the closure */
+
   def addAmount(acc: Double, t: Transaction): Double = t.typ match {
     case Debit => acc - t.amount
     case _ => acc + t.amount
@@ -64,39 +73,22 @@ object Main extends App {
     /* RDD[(AccountId, Amount)] */
   val accountBalance = transactionPair.aggregateByKey(0D)(addAmount, _ + _)
 
+  // top10?
 
-  /* be careful of the closure */
-  type UpdateAcc = (Double, LocalDate)
-  def updateAmount(acc: UpdateAcc, t: Transaction): UpdateAcc = {
-    val (currentValue, currentDate) = acc
-    if (t.date.isAfter(currentDate)) (t.balance, t.date)
-    else acc
+  val clientAccountsBalance = dispositionPair.join(accountBalance).map { case (accountId, (clientId, balance)) =>
+    clientId -> balance
   }
 
-  def updateAccumulators(acc1: UpdateAcc, acc2: UpdateAcc): UpdateAcc =
-    if (acc1._2.isAfter(acc2._2)) acc1 else acc2
+  val clientsBalance = clientAccountsBalance.aggregateByKey(0.0)( _ + _, _ + _)
+
+  val top10 = clientsBalance.join(clientPair).takeOrdered(10)(new Ordering[(String, (Double, Client))] {
+    override def compare(x: (String, (Double, Client)), y: (String, (Double, Client))): Int =
+      (y._2._1 - x._2._1).toInt
+  })
+
+  top10 foreach println
 
 
 
-  def closeEnough(d1: Double, d2: Double, epsilon: Double): Boolean =
-    Math.abs(d1 - d2) <= epsilon
-
-  val accountBalance2 = transactionPair.aggregateByKey((0D, LocalDate.MIN))(updateAmount, updateAccumulators)
-  val checkPair = accountBalance.join(accountBalance2.map { case (id, (acc, _)) => id -> acc })
-
-  val maxDiff = checkPair.aggregate((0D, "ANY")) ( { case (old@(acc, oldId), (id, (d1, d2))) =>
-    val diff = Math.abs(d1 - d2)
-      if (diff > acc) diff -> id else old
-  }, (t1, t2) => if (t1._1 > t2._1) t1 else t2)
-
-  println(maxDiff)
-
-  /* clients.take(10) foreach println
-  accounts.take(10) foreach println
-  loans take 10 foreach println
-  cards take 10 foreach println
-  districts take 10 foreach println
-  transactions take 10 foreach println
-  */
 
 }
