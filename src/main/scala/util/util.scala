@@ -4,9 +4,7 @@ import java.util.regex.Pattern
 
 import domain.{Sex, Male, Female}
 
-/**
-  * Created by efstathiosstergou on 19/10/16.
-  */
+
 package object util {
   type Splitter = String => Array[String]
 
@@ -14,7 +12,6 @@ package object util {
     (s: String) => s.split(Pattern.quote(sep), -1)
   }
 
-  // format: YYMMDD
   def parseDate(data: String): LocalDate = {
     LocalDate.of(
       1900 + data.substring(0, 2).toInt,
